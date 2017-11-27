@@ -1,4 +1,4 @@
-# puppet-nagios
+# puppet-nagios from repo
 
 ## Overview
 
