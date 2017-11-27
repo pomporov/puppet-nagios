@@ -181,7 +181,7 @@ class nagios::server (
     if $apache_httpd_htpasswd_source != false {
       file { '/etc/nagios3/.htpasswd':
         owner   => 'root',
-        group   => 'apache',
+        group   => 'www-data',
         mode    => '0640',
         source  => $apache_httpd_htpasswd_source,
       }
