@@ -3,8 +3,8 @@
 class nagios::server (
   # For the tag of the stored configuration to realize
   $nagios_server        = 'default',
-  $apache_httpd         = true,
-  $apache_httpd_ssl     = true,
+  $apache_httpd         = false,
+  $apache_httpd_ssl     = false,
   $apache_httpd_modules = [
     'auth_basic',
     'authn_file',
@@ -23,8 +23,8 @@ class nagios::server (
   $apache_httpd_conf_source     = undef,
   $apache_allowed_from          = [],   # Allow access in default template
   $apache_httpd_htpasswd_source = "puppet:///modules/${module_name}/apache_httpd/htpasswd",
-  $php                          = true,
-  $php_apc                      = true,
+  $php                          = false,
+  $php_apc                      = false,
   $php_apc_module               = 'pecl-apc',
   # cgi.cfg
   $cgi_authorized_for_system_information        = 'nagiosadmin',
@@ -39,16 +39,16 @@ class nagios::server (
   # nagios.cfg
   $cfg_file = [
     # Where puppet managed types are
-    '/etc/nagios/nagios_command.cfg',
-    '/etc/nagios/nagios_contact.cfg',
-    '/etc/nagios/nagios_contactgroup.cfg',
-    '/etc/nagios/nagios_host.cfg',
-    '/etc/nagios/nagios_hostdependency.cfg',
-    '/etc/nagios/nagios_hostgroup.cfg',
-    '/etc/nagios/nagios_service.cfg',
-    '/etc/nagios/nagios_servicedependency.cfg',
-    '/etc/nagios/nagios_servicegroup.cfg',
-    '/etc/nagios/nagios_timeperiod.cfg',
+    '/etc/nagios3/nagios_command.cfg',
+    '/etc/nagios3/nagios_contact.cfg',
+    '/etc/nagios3/nagios_contactgroup.cfg',
+    '/etc/nagios3/nagios_host.cfg',
+    '/etc/nagios3/nagios_hostdependency.cfg',
+    '/etc/nagios3/nagios_hostgroup.cfg',
+    '/etc/nagios3/nagios_service.cfg',
+    '/etc/nagios3/nagios_servicedependency.cfg',
+    '/etc/nagios3/nagios_servicegroup.cfg',
+    '/etc/nagios3/nagios_timeperiod.cfg',
   ],
   $cfg_dir                        = [],
   $process_performance_data       = '0',
@@ -118,7 +118,6 @@ class nagios::server (
 
   # Plugin packages required on the server side
   package { [
-    'nagios',
     'nagios-plugins-dhcp',
     'nagios-plugins-dns',
     'nagios-plugins-icmp',
@@ -176,28 +175,9 @@ class nagios::server (
     }
   }
 
-  # Other packages
-  # For the default email notifications to work
-  ensure_packages(['mailx'])
 
-  service { 'nagios':
-    ensure    => 'running',
-    enable    => true,
-    # "service nagios status" returns 0 when "nagios is not running" :-(
-    hasstatus => false,
-    # Don't get fooled by any process with "nagios" in its command line
-    pattern   => '/usr/sbin/nagios',
-    # Work around files created root:root mode 600 (known issue)
-    restart   => '/bin/chgrp nagios /etc/nagios/nagios_*.cfg && /bin/chmod 640 /etc/nagios/nagios_*.cfg && /sbin/service nagios reload',
-    require   => Package['nagios'],
-  }
 
-  if $apache_httpd {
-    class { '::apache_httpd':
-      ssl       => $apache_httpd_ssl,
-      modules   => $apache_httpd_modules,
-      keepalive => 'On',
-    }
+
 
     # Set a default content template if no content/source is specified
     if $apache_httpd_conf_source == undef {
@@ -207,103 +187,71 @@ class nagios::server (
         $apache_httpd_conf_content_final = $apache_httpd_conf_content
       }
     }
-    file { '/etc/httpd/conf.d/nagios.conf':
+
+    file { '/etc/apache2/sites-available/nagios.conf':
       owner   => 'root',
       group   => 'root',
       mode    => '0644',
       content => $apache_httpd_conf_content_final,
       source  => $apache_httpd_conf_source,
-      notify  => Service['httpd'],
-      require => Package['nagios'],
     }
+
     if $apache_httpd_htpasswd_source != false {
-      file { '/etc/nagios/.htpasswd':
+      file { '/etc/nagios3/.htpasswd':
         owner   => 'root',
         group   => 'apache',
         mode    => '0640',
         source  => $apache_httpd_htpasswd_source,
-        require => Package['nagios'],
       }
     }
-  }
-
-  if $php {
-    class { '::php::mod_php5': }
-    php::ini { '/etc/php.ini': }
-    if $php_apc { php::module { $php_apc_module: } }
-  }
 
   # Configuration files
   if ($cfg_append != undef) {
     validate_hash($cfg_append)
   }
-  file { '/etc/nagios/cgi.cfg':
+
+  file { '/etc/nagios3/cgi.cfg':
     owner   => 'root',
     group   => 'root',
     mode    => '0644',
     content => template('nagios/cgi.cfg.erb'),
     # No need to reload the service, changes are applied immediately
-    require => Package['nagios'],
   }
-  file { '/etc/nagios/nagios.cfg':
+  file { '/etc/nagios3/nagios.cfg':
     owner   => 'root',
     group   => 'root',
     mode    => '0644',
     content => template('nagios/nagios.cfg.erb'),
-    notify  => Service['nagios'],
-    require => Package['nagios'],
   }
-  file { '/etc/nagios/private/resource.cfg':
+  file { '/etc/nagios3/resource.cfg':
     owner   => 'root',
     group   => 'nagios',
     mode    => '0640',
     content => template('nagios/resource.cfg.erb'),
-    notify  => Service['nagios'],
-    require => Package['nagios'],
   }
 
   # Realize all nagios related exported resources for this server
   # Automatically reload nagios for relevant configuration changes
   # Require the package for the parent directory to exist initially
   Nagios_command <<| tag == "nagios-${nagios_server}" |>> {
-    notify  => Service['nagios'],
-    require => Package['nagios'],
   }
   Nagios_contact <<| tag == "nagios-${nagios_server}" |>> {
-    notify  => Service['nagios'],
-    require => Package['nagios'],
   }
   Nagios_contactgroup <<| tag == "nagios-${nagios_server}" |>> {
-    notify  => Service['nagios'],
-    require => Package['nagios'],
   }
   Nagios_host <<| tag == "nagios-${nagios_server}" |>> {
-    notify  => Service['nagios'],
-    require => Package['nagios'],
   }
   Nagios_hostdependency <<| tag == "nagios-${nagios_server}" |>> {
-    notify  => Service['nagios'],
-    require => Package['nagios'],
   }
   Nagios_hostgroup <<| tag == "nagios-${nagios_server}" |>> {
-    notify  => Service['nagios'],
-    require => Package['nagios'],
   }
   Nagios_service <<| tag == "nagios-${nagios_server}" |>> {
-    notify  => Service['nagios'],
-    require => Package['nagios'],
   }
   Nagios_servicedependency <<| tag == "nagios-${nagios_server}" |>> {
-    notify  => Service['nagios'],
-    require => Package['nagios'],
   }
   Nagios_servicegroup <<| tag == "nagios-${nagios_server}" |>> {
-    notify  => Service['nagios'],
-    require => Package['nagios'],
   }
   Nagios_timeperiod <<| tag == "nagios-${nagios_server}" |>> {
-    notify  => Service['nagios'],
-    require => Package['nagios'],
   }
 
   # Auto reload and parent dir, but for non-exported resources
@@ -311,40 +259,22 @@ class nagios::server (
   # We'll need to wrap around these types with our own
   # definitions like for "host"
   Nagios_command {
-    notify  => Service['nagios'],
-    require => Package['nagios'],
   }
   Nagios_contact {
-    notify  => Service['nagios'],
-    require => Package['nagios'],
   }
   Nagios_contactgroup {
-    notify  => Service['nagios'],
-    require => Package['nagios'],
   }
   Nagios_host {
-    notify  => Service['nagios'],
-    require => Package['nagios'],
   }
   Nagios_hostdependency {
-    notify  => Service['nagios'],
-    require => Package['nagios'],
   }
   Nagios_hostgroup {
-    notify  => Service['nagios'],
-    require => Package['nagios'],
   }
   Nagios_service {
-    notify  => Service['nagios'],
-    require => Package['nagios'],
   }
   Nagios_servicegroup {
-    notify  => Service['nagios'],
-    require => Package['nagios'],
   }
   Nagios_timeperiod {
-    notify  => Service['nagios'],
-    require => Package['nagios'],
   }
 
   # Works great, but only if the "target" is the default (known limitation)
@@ -366,22 +296,21 @@ class nagios::server (
 
   # Work around a puppet bug where created files are 600 root:root
   file { [
-    '/etc/nagios/nagios_command.cfg',
-    '/etc/nagios/nagios_contact.cfg',
-    '/etc/nagios/nagios_contactgroup.cfg',
-    '/etc/nagios/nagios_host.cfg',
-    '/etc/nagios/nagios_hostdependency.cfg',
-    '/etc/nagios/nagios_hostgroup.cfg',
-    '/etc/nagios/nagios_service.cfg',
-    '/etc/nagios/nagios_servicedependency.cfg',
-    '/etc/nagios/nagios_servicegroup.cfg',
-    '/etc/nagios/nagios_timeperiod.cfg',
+    '/etc/nagios3/nagios_command.cfg',
+    '/etc/nagios3/nagios_contact.cfg',
+    '/etc/nagios3/nagios_contactgroup.cfg',
+    '/etc/nagios3/nagios_host.cfg',
+    '/etc/nagios3/nagios_hostdependency.cfg',
+    '/etc/nagios3/nagios_hostgroup.cfg',
+    '/etc/nagios3/nagios_service.cfg',
+    '/etc/nagios3/nagios_servicedependency.cfg',
+    '/etc/nagios3/nagios_servicegroup.cfg',
+    '/etc/nagios3/nagios_timeperiod.cfg',
   ]:
     ensure => 'present',
     owner  => 'root',
     group  => 'nagios',
     mode   => '0640',
-    before => Service['nagios'],
   }
 
   # Nagios commands
@@ -993,14 +922,6 @@ class nagios::server (
     alias => 'MongoDB service checks',
   }
 
-  # With selinux, adjustements are needed for nagiosgraph
-  # lint:ignore:quoted_booleans
-  if ( ( $selinux == true and $::selinux_enforced == true ) or
-  ( $selinux == 'true' and $::selinux_enforced == 'true' ) ) {
-    selinux::audit2allow { 'nagios':
-      source => "puppet:///modules/${module_name}/messages.nagios",
-    }
-  }
-  # lint:endignore
+
 
 }
